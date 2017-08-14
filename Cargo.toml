@@ -1,0 +1,6 @@
+[package]
+name = "biowiki"
+version = "0.1.0"
+authors = ["Jeremy Stephens <jeremy.f.stephens@vanderbilt.edu>"]
+
+[dependencies]
