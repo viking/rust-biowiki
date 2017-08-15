@@ -39,11 +39,11 @@ impl Webs {
     }
 }
 
-struct Biowiki {
+struct BioWiki {
     webs: Arc<Mutex<Webs>>
 }
 
-impl Service for Biowiki {
+impl Service for BioWiki {
     type Request = Request;
     type Response = Response;
     type Error = hyper::Error;
@@ -156,7 +156,7 @@ pub fn run(host: String, port: String, path: PathBuf) {
     let webs = Arc::new(Mutex::new(Webs { path: path }));
     let server =
         Http::new().bind(&addr, move || {
-            Ok(Biowiki { webs: webs.clone() })
+            Ok(BioWiki { webs: webs.clone() })
         }).unwrap();
     server.run().unwrap();
 }
