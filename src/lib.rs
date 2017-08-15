@@ -5,106 +5,16 @@ extern crate serde_json;
 #[macro_use]
 extern crate serde_derive;
 
-use std::{io, error, fmt};
+mod web;
+
+use std::{io, fs};
 use std::path::PathBuf;
-use std::convert::From;
-use std::fs::{self, File};
 use std::sync::{Arc, Mutex};
 use hyper::{Method, StatusCode};
 use hyper::header::Location;
 use hyper::server::{Http, Request, Response, Service};
 use futures::{Future, Stream, BoxFuture};
-
-#[derive(Debug)]
-enum PageReadError {
-    NotFound,
-    IoError(io::Error),
-    JsonError(serde_json::error::Error)
-}
-
-impl error::Error for PageReadError {
-    fn description(&self) -> &str {
-        match self {
-            &PageReadError::NotFound => "page file not found",
-            &PageReadError::IoError(ref err) => err.description(),
-            &PageReadError::JsonError(ref err) => err.description()
-        }
-    }
-}
-
-impl fmt::Display for PageReadError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
-        match self {
-            &PageReadError::NotFound => write!(f, "PageReadError::NotFound"),
-            &PageReadError::IoError(ref err) => write!(f, "PageReadError::IoError({})", err),
-            &PageReadError::JsonError(ref err) => write!(f, "PageReadError::JsonError({})", err),
-        }
-    }
-}
-
-impl From<io::Error> for PageReadError {
-    fn from(err: io::Error) -> PageReadError {
-        match err.kind() {
-            io::ErrorKind::NotFound => PageReadError::NotFound,
-            _ => PageReadError::IoError(err)
-        }
-    }
-}
-
-impl From<serde_json::error::Error> for PageReadError {
-    fn from(err: serde_json::error::Error) -> PageReadError {
-        PageReadError::JsonError(err)
-    }
-}
-
-enum PageWriteError {
-    IoError(io::Error),
-    JsonError(serde_json::error::Error)
-}
-
-impl From<io::Error> for PageWriteError {
-    fn from(err: io::Error) -> PageWriteError {
-        PageWriteError::IoError(err)
-    }
-}
-
-impl From<serde_json::error::Error> for PageWriteError {
-    fn from(err: serde_json::error::Error) -> PageWriteError {
-        PageWriteError::JsonError(err)
-    }
-}
-
-#[derive(Clone, Serialize, Deserialize, Debug)]
-struct Page {
-    name: String,
-    content: String
-}
-
-#[derive(Debug)]
-struct Web {
-    name: String,
-    path: PathBuf
-}
-
-impl Web {
-    fn get_page(&self, name: &str) -> Result<Page, PageReadError> {
-        let mut path = self.path.clone();
-        path.push(name);
-
-        let file = File::open(path)?;
-        let page = serde_json::from_reader(file)?;
-        Ok(page)
-    }
-
-    fn save_page(&self, page: Page) -> Result<(), PageWriteError> {
-        let mut path = self.path.clone();
-        path.push(&page.name);
-
-        let file = File::create(path)?;
-        serde_json::to_writer_pretty(file, &page)?;
-        Ok(())
-    }
-}
+use web::{Page, Web, PageReadError};
 
 struct Webs {
     path: PathBuf
