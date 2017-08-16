@@ -7,37 +7,13 @@ extern crate serde_derive;
 
 mod web;
 
-use std::{io, fs};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use hyper::{Method, StatusCode};
 use hyper::header::Location;
 use hyper::server::{Http, Request, Response, Service};
 use futures::{Future, Stream, BoxFuture};
-use web::{Page, Web, PageReadError};
-
-struct Webs {
-    path: PathBuf
-}
-
-impl Webs {
-    fn get_web(&self, name: &str) -> Option<Web> {
-        let mut path = self.path.clone();
-        path.push(name);
-        if path.is_dir() {
-            Some(Web { name: name.to_string(), path: path })
-        } else {
-            None
-        }
-    }
-
-    fn create_web(&self, name: &str) -> Result<Web, io::Error> {
-        let mut path = self.path.clone();
-        path.push(name);
-        fs::create_dir(&path)?;
-        Ok(Web { name: name.to_string(), path: path })
-    }
-}
+use web::{Page, Webs, PageReadError};
 
 struct BioWiki {
     webs: Arc<Mutex<Webs>>
