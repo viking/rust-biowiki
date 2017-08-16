@@ -10,7 +10,6 @@ mod web;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use hyper::{Method, StatusCode};
-use hyper::header::Location;
 use hyper::server::{Http, Request, Response, Service};
 use futures::{Future, Stream, BoxFuture};
 use web::{Page, Webs, PageReadError};
@@ -32,43 +31,61 @@ impl Service for BioWiki {
         let path = request.path().to_string();
         match (method, path) {
             (Method::Get, path) => {
-                if path == "/" {
-                    response.headers_mut().set(Location::new("/wiki/Home/WebHome"));
-                    response.set_body("{}");
-                    return futures::future::ok(response).boxed()
-                }
-
                 let parts: Vec<_> = path.split('/').collect();
-                if parts.len() != 4 {
-                    response.set_status(StatusCode::NotFound);
-                    return futures::future::ok(response).boxed();
-                }
-                if parts[1] != "wiki" {
+                if parts.len() < 2 || parts[0] != "" {
                     response.set_status(StatusCode::NotFound);
                     return futures::future::ok(response).boxed();
                 }
 
-                let webs = self.webs.lock().unwrap();
-                let web = webs.get_web(parts[2]);
-                if let None = web {
-                    response.set_status(StatusCode::NotFound);
-                    return futures::future::ok(response).boxed();
-                }
-                let web = web.unwrap();
+                if parts[1] == "webs" {
+                    let webs = self.webs.lock().unwrap();
+                    if parts.len() == 2 {
+                        match webs.get_web_stubs() {
+                            Ok(stubs) => {
+                                response.set_body(serde_json::to_string(&stubs).unwrap());
+                            },
+                            Err(_) => {
+                                response.set_status(StatusCode::InternalServerError);
+                            }
+                        }
+                    } else if parts.len() <= 4 {
+                        let web = webs.get_web(parts[2]);
+                        if let None = web {
+                            response.set_status(StatusCode::NotFound);
+                            return futures::future::ok(response).boxed();
+                        }
+                        let web = web.unwrap();
 
-                let page = match web.get_page(parts[3]) {
-                    Ok(page) => page,
-                    Err(PageReadError::NotFound) => {
+                        if parts.len() == 3 {
+                            match web.get_page_stubs() {
+                                Ok(stubs) => {
+                                    response.set_body(serde_json::to_string(&stubs).unwrap());
+                                },
+                                Err(_) => {
+                                    response.set_status(StatusCode::InternalServerError);
+                                }
+                            }
+                        } else {
+                            let page = match web.get_page(parts[3]) {
+                                Ok(page) => page,
+                                Err(PageReadError::NotFound) => {
+                                    response.set_status(StatusCode::NotFound);
+                                    return futures::future::ok(response).boxed();
+                                },
+                                Err(err) => {
+                                    response.set_status(StatusCode::InternalServerError);
+                                    return futures::future::ok(response).boxed();
+                                }
+                            };
+                            response.set_body(serde_json::to_string(&page).unwrap());
+                        }
+                    } else {
                         response.set_status(StatusCode::NotFound);
-                        return futures::future::ok(response).boxed();
-                    },
-                    Err(err) => {
-                        response.set_status(StatusCode::InternalServerError);
-                        return futures::future::ok(response).boxed();
                     }
-                };
+                } else {
+                    response.set_status(StatusCode::NotFound);
+                }
 
-                response.set_body(serde_json::to_string(&page).unwrap());
                 futures::future::ok(response).boxed()
             },
             (Method::Post, path) => {

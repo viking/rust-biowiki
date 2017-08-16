@@ -88,6 +88,11 @@ pub struct Page {
     content: String
 }
 
+#[derive(Serialize)]
+pub struct PageStub {
+    name: String
+}
+
 #[derive(Debug)]
 pub struct Web {
     pub name: String,
@@ -95,6 +100,26 @@ pub struct Web {
 }
 
 impl Web {
+    pub fn get_page_stubs(&self) -> Result<Vec<PageStub>, WebReadError> {
+        let stubs = fs::read_dir(&self.path)?.filter(|entry| {
+            match entry {
+                &Err(_) => false,
+                &Ok(ref entry) => {
+                    let path = entry.path();
+                    if !path.is_file() {
+                        return false;
+                    }
+                    let s = path.to_str();
+                    s.is_some()
+                }
+            }
+        }).map(|entry| {
+            let name = entry.unwrap().path().file_name().unwrap().to_str().unwrap().to_string();
+            PageStub { name }
+        }).collect();
+        Ok(stubs)
+    }
+
     pub fn get_page(&self, name: &str) -> Result<Page, PageReadError> {
         let mut path = self.path.clone();
         path.push(name);
@@ -114,6 +139,13 @@ impl Web {
     }
 }
 
+#[derive(Serialize)]
+pub struct WebStub {
+    name: String
+}
+
+pub type WebReadError = io::Error;
+
 pub struct Webs {
     pub path: PathBuf
 }
@@ -127,6 +159,26 @@ impl Webs {
         } else {
             None
         }
+    }
+
+    pub fn get_web_stubs(&self) -> Result<Vec<WebStub>, WebReadError> {
+        let stubs = fs::read_dir(&self.path)?.filter(|entry| {
+            match entry {
+                &Err(_) => false,
+                &Ok(ref entry) => {
+                    let path = entry.path();
+                    if !path.is_dir() {
+                        return false;
+                    }
+                    let s = path.to_str();
+                    s.is_some()
+                }
+            }
+        }).map(|entry| {
+            let name = entry.unwrap().path().file_name().unwrap().to_str().unwrap().to_string();
+            WebStub { name }
+        }).collect();
+        Ok(stubs)
     }
 
     pub fn create_web(&self, name: &str) -> Result<Web, io::Error> {
