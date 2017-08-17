@@ -1,0 +1,107 @@
+use std::collections::HashMap;
+use regex::Regex;
+use hyper::{Request, Method};
+
+struct ParamPath {
+    names: Vec<String>,
+    re: Regex
+}
+
+impl ParamPath {
+    fn new(pattern: &str) -> ParamPath {
+        let mut names = Vec::new();
+        let mut re = String::from("^");
+        for part in pattern.split('/').skip(1) {
+            re.push('/');
+
+            let mut chars = part.chars();
+            match chars.next() {
+                Some(c) => {
+                    if c == ':' {
+                        let name: String = chars.collect();
+                        names.push(name.clone());
+
+                        let part = format!(r"(?P<{}>\w+)", name);
+                        re.push_str(&part);
+                    } else {
+                        re.push_str(part);
+                    }
+                },
+                None => re.push_str(part)
+            };
+
+        }
+        re.push('$');
+
+        ParamPath { names: names, re: Regex::new(&re).unwrap() }
+    }
+
+    fn test(&self, path: &str) -> Option<HashMap<String, String>> {
+        match self.re.captures(path) {
+            Some(caps) => {
+                let map = self.names.iter().fold(HashMap::new(), |mut map, name| {
+                    if let Some(m) = caps.name(name) {
+                        map.insert(name.clone(), m.as_str().to_string());
+                    }
+                    map
+                });
+                if map.len() == self.names.len() {
+                    Some(map)
+                } else {
+                    None
+                }
+            },
+            None => None
+        }
+    }
+}
+
+pub enum Route {
+    ListWebs,
+    CreateWeb,
+    ListPages  { web_name: String },
+    CreatePage { web_name: String },
+    ShowPage   { web_name: String, page_name: String },
+    Invalid
+}
+
+impl<'a> From<&'a Request> for Route {
+    fn from(request: &'a Request) -> Route {
+        lazy_static! {
+            static ref WEBS_PATH: ParamPath = ParamPath::new("/webs");
+            static ref WEB_PATH:  ParamPath = ParamPath::new("/webs/:web_name");
+            static ref PAGE_PATH: ParamPath = ParamPath::new("/webs/:web_name/:page_name");
+        }
+        let path = request.path();
+        match request.method() {
+            &Method::Get => {
+                if let Some(_) = WEBS_PATH.test(&path) {
+                    Route::ListWebs
+
+                } else if let Some(mut params) = WEB_PATH.test(&path) {
+                    Route::ListPages { web_name: params.remove("web_name").unwrap() }
+
+                } else if let Some(mut params) = PAGE_PATH.test(&path) {
+                    Route::ShowPage {
+                        web_name:  params.remove("web_name").unwrap(),
+                        page_name: params.remove("page_name").unwrap()
+                    }
+                } else {
+                    Route::Invalid
+                }
+            },
+            &Method::Post => {
+                if let Some(_) = WEBS_PATH.test(&path) {
+                    Route::CreateWeb
+
+                } else if let Some(mut params) = WEB_PATH.test(&path) {
+                    Route::CreatePage { web_name: params.remove("web_name").unwrap() }
+
+                } else {
+                    Route::Invalid
+                }
+            },
+            _ => Route::Invalid
+        }
+    }
+}

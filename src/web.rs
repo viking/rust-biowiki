@@ -5,80 +5,47 @@ use std::fs::{self, File};
 use serde_json;
 
 #[derive(Debug)]
-pub enum PageReadError {
+pub enum PageError {
     NotFound,
     IoError(io::Error),
-    JsonError(serde_json::error::Error)
+    JsonError(serde_json::error::Error),
+    OverwriteError
 }
 
-impl error::Error for PageReadError {
+impl error::Error for PageError {
     fn description(&self) -> &str {
         match self {
-            &PageReadError::NotFound => "page file not found",
-            &PageReadError::IoError(ref err) => err.description(),
-            &PageReadError::JsonError(ref err) => err.description()
+            &PageError::NotFound => "page file not found",
+            &PageError::IoError(ref err) => err.description(),
+            &PageError::JsonError(ref err) => err.description(),
+            &PageError::OverwriteError => "page file already exists",
         }
     }
 }
 
-impl fmt::Display for PageReadError {
+impl fmt::Display for PageError {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
         match self {
-            &PageReadError::NotFound => write!(f, "PageReadError::NotFound"),
-            &PageReadError::IoError(ref err) => write!(f, "PageReadError::IoError({})", err),
-            &PageReadError::JsonError(ref err) => write!(f, "PageReadError::JsonError({})", err),
+            &PageError::NotFound => write!(f, "PageError::NotFound"),
+            &PageError::IoError(ref err) => write!(f, "PageError::IoError({})", err),
+            &PageError::JsonError(ref err) => write!(f, "PageError::JsonError({})", err),
+            &PageError::OverwriteError => write!(f, "PageError::OverwriteError"),
         }
     }
 }
 
-impl From<io::Error> for PageReadError {
-    fn from(err: io::Error) -> PageReadError {
+impl From<io::Error> for PageError {
+    fn from(err: io::Error) -> PageError {
         match err.kind() {
-            io::ErrorKind::NotFound => PageReadError::NotFound,
-            _ => PageReadError::IoError(err)
+            io::ErrorKind::NotFound => PageError::NotFound,
+            _ => PageError::IoError(err)
         }
     }
 }
 
-impl From<serde_json::error::Error> for PageReadError {
-    fn from(err: serde_json::error::Error) -> PageReadError {
-        PageReadError::JsonError(err)
-    }
-}
-
-#[derive(Debug)]
-pub enum PageWriteError {
-    IoError(io::Error),
-    JsonError(serde_json::error::Error)
-}
-
-impl error::Error for PageWriteError {
-    fn description(&self) -> &str {
-        match self {
-            &PageWriteError::IoError(ref err) => err.description(),
-            &PageWriteError::JsonError(ref err) => err.description()
-        }
-    }
-}
-
-impl fmt::Display for PageWriteError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
-        match self {
-            &PageWriteError::IoError(ref err) => write!(f, "PageWriteError::IoError({})", err),
-            &PageWriteError::JsonError(ref err) => write!(f, "PageWriteError::JsonError({})", err),
-        }
-    }
-}
-
-impl From<io::Error> for PageWriteError {
-    fn from(err: io::Error) -> PageWriteError {
-        PageWriteError::IoError(err)
-    }
-}
-
-impl From<serde_json::error::Error> for PageWriteError {
-    fn from(err: serde_json::error::Error) -> PageWriteError {
-        PageWriteError::JsonError(err)
+impl From<serde_json::error::Error> for PageError {
+    fn from(err: serde_json::error::Error) -> PageError {
+        PageError::JsonError(err)
     }
 }
 
@@ -88,9 +55,52 @@ pub struct Page {
     content: String
 }
 
+impl Page {
+    pub fn parse(data: &Vec<u8>) -> Result<Page, PageError> {
+        let page = serde_json::from_slice::<Page>(data)?;
+        Ok(page)
+    }
+}
+
 #[derive(Serialize)]
 pub struct PageStub {
     name: String
+}
+
+#[derive(Debug)]
+pub enum WebError {
+    NotFound,
+    IoError(io::Error),
+    OverwriteError
+}
+
+impl error::Error for WebError {
+    fn description(&self) -> &str {
+        match self {
+            &WebError::NotFound => "web directory not found",
+            &WebError::IoError(ref err) => err.description(),
+            &WebError::OverwriteError => "web directory already exists",
+        }
+    }
+}
+
+impl fmt::Display for WebError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+        match self {
+            &WebError::NotFound => write!(f, "WebError::NotFound"),
+            &WebError::IoError(ref err) => write!(f, "WebError::IoError({})", err),
+            &WebError::OverwriteError => write!(f, "WebError::OverwriteError"),
+        }
+    }
+}
+
+impl From<io::Error> for WebError {
+    fn from(err: io::Error) -> WebError {
+        match err.kind() {
+            io::ErrorKind::NotFound => WebError::NotFound,
+            _ => WebError::IoError(err)
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -100,7 +110,7 @@ pub struct Web {
 }
 
 impl Web {
-    pub fn get_page_stubs(&self) -> Result<Vec<PageStub>, WebReadError> {
+    pub fn get_page_stubs(&self) -> Result<Vec<PageStub>, WebError> {
         let stubs = fs::read_dir(&self.path)?.filter(|entry| {
             match entry {
                 &Err(_) => false,
@@ -120,7 +130,7 @@ impl Web {
         Ok(stubs)
     }
 
-    pub fn get_page(&self, name: &str) -> Result<Page, PageReadError> {
+    pub fn get_page(&self, name: &str) -> Result<Page, PageError> {
         let mut path = self.path.clone();
         path.push(name);
 
@@ -129,22 +139,31 @@ impl Web {
         Ok(page)
     }
 
-    pub fn save_page(&self, page: Page) -> Result<(), PageWriteError> {
+    pub fn create_page(&self, page: Page) -> Result<(), PageError> {
         let mut path = self.path.clone();
         path.push(&page.name);
 
-        let file = File::create(path)?;
-        serde_json::to_writer_pretty(file, &page)?;
-        Ok(())
+        if path.exists() {
+            Err(PageError::OverwriteError)
+        } else {
+            let file = File::create(path)?;
+            serde_json::to_writer_pretty(file, &page)?;
+            Ok(())
+        }
     }
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize)]
 pub struct WebStub {
-    name: String
+    pub name: String
 }
 
-pub type WebReadError = io::Error;
+impl WebStub {
+    pub fn parse(data: &Vec<u8>) -> Result<Page, PageError> {
+        let page = serde_json::from_slice::<Page>(data)?;
+        Ok(page)
+    }
+}
 
 pub struct Webs {
     pub path: PathBuf
@@ -161,7 +180,7 @@ impl Webs {
         }
     }
 
-    pub fn get_web_stubs(&self) -> Result<Vec<WebStub>, WebReadError> {
+    pub fn get_web_stubs(&self) -> Result<Vec<WebStub>, WebError> {
         let stubs = fs::read_dir(&self.path)?.filter(|entry| {
             match entry {
                 &Err(_) => false,
@@ -181,10 +200,14 @@ impl Webs {
         Ok(stubs)
     }
 
-    pub fn create_web(&self, name: &str) -> Result<Web, io::Error> {
+    pub fn create_web(&self, name: &str) -> Result<Web, WebError> {
         let mut path = self.path.clone();
         path.push(name);
-        fs::create_dir(&path)?;
-        Ok(Web { name: name.to_string(), path: path })
+        if path.exists() {
+            Err(WebError::OverwriteError)
+        } else {
+            fs::create_dir(&path)?;
+            Ok(Web { name: name.to_string(), path: path })
+        }
     }
 }
