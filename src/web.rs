@@ -151,6 +151,19 @@ impl Web {
             Ok(())
         }
     }
+
+    pub fn update_page(&self, page: Page) -> Result<(), PageError> {
+        let mut path = self.path.clone();
+        path.push(&page.name);
+
+        if !path.exists() {
+            Err(PageError::NotFound)
+        } else {
+            let file = File::create(path)?;
+            serde_json::to_writer_pretty(file, &page)?;
+            Ok(())
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize)]

@@ -62,6 +62,7 @@ pub enum Route {
     ListPages  { web_name: String },
     CreatePage { web_name: String },
     ShowPage   { web_name: String, page_name: String },
+    UpdatePage { web_name: String, page_name: String },
     Invalid
 }
 
@@ -96,6 +97,17 @@ impl<'a> From<&'a Request> for Route {
 
                 } else if let Some(mut params) = WEB_PATH.test(&path) {
                     Route::CreatePage { web_name: params.remove("web_name").unwrap() }
+
+                } else {
+                    Route::Invalid
+                }
+            },
+            &Method::Put => {
+                if let Some(mut params) = PAGE_PATH.test(&path) {
+                    Route::UpdatePage {
+                        web_name: params.remove("web_name").unwrap(),
+                        page_name: params.remove("page_name").unwrap()
+                    }
 
                 } else {
                     Route::Invalid

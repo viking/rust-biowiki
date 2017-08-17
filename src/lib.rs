@@ -139,6 +139,41 @@ impl Service for BioWiki {
                     }
                 }
             },
+            Route::UpdatePage { web_name, page_name } => {
+                let webs = self.webs.lock().unwrap();
+                match webs.get_web(&web_name) {
+                    None => {
+                        response.set_status(StatusCode::NotFound);
+                        futures::future::ok(response).boxed()
+                    },
+                    Some(web) => {
+                        request.body().concat2().map(move |body| {
+                            let data = body.to_vec();
+                            match serde_json::from_slice::<Page>(&data) {
+                                Ok(page) => {
+                                    if &page_name != &page.name {
+                                        response.set_status(StatusCode::BadRequest);
+                                        return response;
+                                    }
+                                    match web.update_page(page) {
+                                        Ok(_) => (),
+                                        Err(PageError::NotFound) => {
+                                            response.set_status(StatusCode::NotFound);
+                                        },
+                                        Err(_) => {
+                                            response.set_status(StatusCode::InternalServerError);
+                                        }
+                                    }
+                                },
+                                Err(_) => {
+                                    response.set_status(StatusCode::BadRequest);
+                                }
+                            }
+                            response
+                        }).boxed()
+                    }
+                }
+            },
             Route::Invalid => {
                 response.set_status(StatusCode::NotFound);
                 futures::future::ok(response).boxed()
