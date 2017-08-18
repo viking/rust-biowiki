@@ -21,7 +21,7 @@ impl ParamPath {
                         let name: String = chars.collect();
                         names.push(name.clone());
 
-                        let part = format!(r"(?P<{}>\w+)", name);
+                        let part = format!(r"(?P<{}>\w+(?:\.\w+)?)", name);
                         re.push_str(&part);
                     } else {
                         re.push_str(part);
@@ -63,6 +63,8 @@ pub enum Route {
     CreatePage { web_name: String },
     ShowPage   { web_name: String, page_name: String },
     UpdatePage { web_name: String, page_name: String },
+    CreateAttachment { web_name: String, page_name: String },
+    ServeAttachment  { web_name: String, page_name: String, attachment_name: String },
     Invalid
 }
 
@@ -72,6 +74,8 @@ impl<'a> From<&'a Request> for Route {
             static ref WEBS_PATH: ParamPath = ParamPath::new("/webs");
             static ref WEB_PATH:  ParamPath = ParamPath::new("/webs/:web_name");
             static ref PAGE_PATH: ParamPath = ParamPath::new("/webs/:web_name/:page_name");
+            static ref ATTACHMENTS_PATH: ParamPath = ParamPath::new("/webs/:web_name/:page_name/attachments");
+            static ref ATTACHMENT_PATH:  ParamPath = ParamPath::new("/webs/:web_name/:page_name/attachments/:attachment_name");
         }
         let path = request.path();
         match request.method() {
@@ -87,6 +91,12 @@ impl<'a> From<&'a Request> for Route {
                         web_name:  params.remove("web_name").unwrap(),
                         page_name: params.remove("page_name").unwrap()
                     }
+                } else if let Some(mut params) = ATTACHMENT_PATH.test(&path) {
+                    Route::ServeAttachment {
+                        web_name:  params.remove("web_name").unwrap(),
+                        page_name: params.remove("page_name").unwrap(),
+                        attachment_name: params.remove("attachment_name").unwrap()
+                    }
                 } else {
                     Route::Invalid
                 }
@@ -98,6 +108,11 @@ impl<'a> From<&'a Request> for Route {
                 } else if let Some(mut params) = WEB_PATH.test(&path) {
                     Route::CreatePage { web_name: params.remove("web_name").unwrap() }
 
+                } else if let Some(mut params) = ATTACHMENTS_PATH.test(&path) {
+                    Route::CreateAttachment {
+                        web_name:  params.remove("web_name").unwrap(),
+                        page_name: params.remove("page_name").unwrap()
+                    }
                 } else {
                     Route::Invalid
                 }

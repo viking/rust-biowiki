@@ -5,6 +5,8 @@ extern crate serde_json;
 #[macro_use] extern crate serde_derive;
 extern crate regex;
 #[macro_use] extern crate lazy_static;
+extern crate base64;
+extern crate mime;
 
 mod web;
 mod page;
@@ -13,7 +15,7 @@ mod router;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use hyper::StatusCode;
-use hyper::header::{AccessControlAllowOrigin};
+use hyper::header::{AccessControlAllowOrigin, ContentType};
 use hyper::server::{Http, Request, Response, Service};
 use futures::{Future, Stream, BoxFuture};
 use web::*;
@@ -107,7 +109,6 @@ impl Service for BioWiki {
                         response.set_status(StatusCode::NotFound);
                     },
                     Err(err) => {
-                        println!("couldn't get page: {}", err);
                         response.set_status(StatusCode::InternalServerError);
                     }
                 }
@@ -154,7 +155,10 @@ impl Service for BioWiki {
 
                 let web = web.unwrap();
                 let page = web.get_page(&page_name);
-                if page.is_err() {
+                if let Err(PageError::NotFound) = page {
+                    response.set_status(StatusCode::NotFound);
+                    return futures::future::ok(response).boxed();
+                } else if let Err(_) = page {
                     response.set_status(StatusCode::InternalServerError);
                     return futures::future::ok(response).boxed();
                 }
@@ -186,6 +190,82 @@ impl Service for BioWiki {
                     };
                     response
                 }).boxed()
+            },
+            Route::CreateAttachment { web_name, page_name } => {
+                let webs = self.webs.lock().unwrap();
+                let web = webs.get_web(&web_name);
+                if web.is_none() {
+                    response.set_status(StatusCode::NotFound);
+                    return futures::future::ok(response).boxed();
+                }
+
+                let web = web.unwrap();
+                let page = web.get_page(&page_name);
+                if let Err(PageError::NotFound) = page {
+                    response.set_status(StatusCode::NotFound);
+                    return futures::future::ok(response).boxed();
+                } else if let Err(_) = page {
+                    response.set_status(StatusCode::InternalServerError);
+                    return futures::future::ok(response).boxed();
+                }
+
+                let page = page.unwrap();
+                request.body().concat2().map(move |body| {
+                    let data = body.to_vec();
+                    let att_data = AttachmentData::parse(&data);
+                    if att_data.is_err() {
+                        response.set_status(StatusCode::BadRequest);
+                        return response;
+                    }
+
+                    let att_data = att_data.unwrap();
+                    match page.save_attachment(att_data) {
+                        Ok(_) => (),
+                        Err(AttachmentError::Base64Error(_)) => {
+                            response.set_status(StatusCode::BadRequest);
+                        },
+                        Err(err) => {
+                            response.set_status(StatusCode::InternalServerError);
+                        }
+                    }
+                    response
+                }).boxed()
+            },
+            Route::ServeAttachment { web_name, page_name, attachment_name } => {
+                let webs = self.webs.lock().unwrap();
+                let web = webs.get_web(&web_name);
+                if web.is_none() {
+                    response.set_status(StatusCode::NotFound);
+                    return futures::future::ok(response).boxed();
+                }
+
+                let web = web.unwrap();
+                let page = web.get_page(&page_name);
+                if let Err(PageError::NotFound) = page {
+                    response.set_status(StatusCode::NotFound);
+                    return futures::future::ok(response).boxed();
+                } else if let Err(_) = page {
+                    response.set_status(StatusCode::InternalServerError);
+                    return futures::future::ok(response).boxed();
+                }
+
+                let page = page.unwrap();
+                let att = page.get_attachment(&attachment_name);
+                if let Err(AttachmentError::NotFound) = att {
+                    response.set_status(StatusCode::NotFound);
+                    return futures::future::ok(response).boxed();
+                } else if let Err(_) = att {
+                    response.set_status(StatusCode::InternalServerError);
+                    return futures::future::ok(response).boxed();
+                }
+
+                let att = att.unwrap();
+                let mut response = response.with_header(ContentType(att.mime_type()));
+                match att.data() {
+                    Ok(data) => response.set_body(data),
+                    Err(_) => response.set_status(StatusCode::InternalServerError)
+                }
+                futures::future::ok(response).boxed()
             },
             Route::Invalid => {
                 response.set_status(StatusCode::NotFound);
