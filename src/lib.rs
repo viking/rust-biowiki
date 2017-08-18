@@ -219,6 +219,10 @@ impl Service for BioWiki {
                     }
 
                     let att_data = att_data.unwrap();
+                    if !att_data.is_file_name_valid() {
+                        response.set_status(StatusCode::BadRequest);
+                        return response;
+                    }
                     match page.save_attachment(att_data) {
                         Ok(_) => (),
                         Err(AttachmentError::Base64Error(_)) => {
