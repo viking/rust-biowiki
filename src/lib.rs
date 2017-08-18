@@ -7,14 +7,17 @@ extern crate regex;
 #[macro_use] extern crate lazy_static;
 
 mod web;
+mod page;
 mod router;
 
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use hyper::StatusCode;
+use hyper::header::{AccessControlAllowOrigin};
 use hyper::server::{Http, Request, Response, Service};
 use futures::{Future, Stream, BoxFuture};
 use web::*;
+use page::*;
 use router::Route;
 
 struct BioWiki {
@@ -28,13 +31,14 @@ impl Service for BioWiki {
     type Future = BoxFuture<Self::Response, Self::Error>;
 
     fn call(&self, request: Request) -> Self::Future {
-        let mut response = Response::new();
+        let mut response = Response::new().
+            with_header(AccessControlAllowOrigin::Any);
 
         let route = Route::from(&request);
         match route {
             Route::ListWebs => {
                 let webs = self.webs.lock().unwrap();
-                match webs.get_web_stubs() {
+                match webs.list_webs() {
                     Ok(stubs) => {
                         response.set_body(serde_json::to_string(&stubs).unwrap());
                     },
@@ -48,20 +52,20 @@ impl Service for BioWiki {
                 let webs = self.webs.clone();
                 request.body().concat2().map(move |body| {
                     let data = body.to_vec();
-                    match serde_json::from_slice::<WebStub>(&data) {
-                        Ok(stub) => {
-                            match webs.lock().unwrap().create_web(&stub.name) {
-                                Ok(_) => (),
-                                Err(WebError::OverwriteError) => {
-                                    response.set_status(StatusCode::BadRequest);
-                                },
-                                Err(_) => {
-                                    response.set_status(StatusCode::InternalServerError);
-                                }
-                            }
+                    let stub = WebStub::parse(&data);
+                    if stub.is_err() {
+                        response.set_status(StatusCode::BadRequest);
+                        return response;
+                    }
+
+                    let stub = stub.unwrap();
+                    match webs.lock().unwrap().create_web(&stub.name) {
+                        Ok(_) => (),
+                        Err(WebError::OverwriteError) => {
+                            response.set_status(StatusCode::BadRequest);
                         },
                         Err(_) => {
-                            response.set_status(StatusCode::BadRequest);
+                            response.set_status(StatusCode::InternalServerError);
                         }
                     }
                     response
@@ -69,110 +73,119 @@ impl Service for BioWiki {
             },
             Route::ListPages { web_name } => {
                 let webs = self.webs.lock().unwrap();
-                match webs.get_web(&web_name) {
-                    None => {
-                        response.set_status(StatusCode::NotFound);
+                let web = webs.get_web(&web_name);
+                if web.is_none() {
+                    response.set_status(StatusCode::NotFound);
+                    return futures::future::ok(response).boxed();
+                }
+
+                let web = web.unwrap();
+                match web.list_pages() {
+                    Ok(stubs) => {
+                        response.set_body(serde_json::to_string(&stubs).unwrap());
                     },
-                    Some(web) => {
-                        match web.get_page_stubs() {
-                            Ok(stubs) => {
-                                response.set_body(serde_json::to_string(&stubs).unwrap());
-                            },
-                            Err(_) => {
-                                response.set_status(StatusCode::InternalServerError);
-                            }
-                        }
+                    Err(_) => {
+                        response.set_status(StatusCode::InternalServerError);
                     }
                 }
                 futures::future::ok(response).boxed()
             },
             Route::ShowPage { web_name, page_name } => {
                 let webs = self.webs.lock().unwrap();
-                match webs.get_web(&web_name) {
-                    None => {
+                let web = webs.get_web(&web_name);
+                if web.is_none() {
+                    response.set_status(StatusCode::NotFound);
+                    return futures::future::ok(response).boxed();
+                }
+
+                let web = web.unwrap();
+                match web.get_page(&page_name) {
+                    Ok(page) => {
+                        response.set_body(serde_json::to_string(&page.detail).unwrap());
+                    },
+                    Err(PageError::NotFound) => {
                         response.set_status(StatusCode::NotFound);
                     },
-                    Some(web) => {
-                        match web.get_page(&page_name) {
-                            Ok(page) => {
-                                response.set_body(serde_json::to_string(&page).unwrap());
-                            },
-                            Err(PageError::NotFound) => {
-                                response.set_status(StatusCode::NotFound);
-                            },
-                            Err(_) => {
-                                response.set_status(StatusCode::InternalServerError);
-                            }
-                        }
+                    Err(err) => {
+                        println!("couldn't get page: {}", err);
+                        response.set_status(StatusCode::InternalServerError);
                     }
                 }
                 futures::future::ok(response).boxed()
             },
             Route::CreatePage { web_name } => {
                 let webs = self.webs.lock().unwrap();
-                match webs.get_web(&web_name) {
-                    None => {
-                        response.set_status(StatusCode::NotFound);
-                        futures::future::ok(response).boxed()
-                    },
-                    Some(web) => {
-                        request.body().concat2().map(move |body| {
-                            let data = body.to_vec();
-                            match serde_json::from_slice::<Page>(&data) {
-                                Ok(page) => {
-                                    match web.create_page(page) {
-                                        Ok(_) => (),
-                                        Err(PageError::OverwriteError) => {
-                                            response.set_status(StatusCode::BadRequest);
-                                        },
-                                        Err(_) => {
-                                            response.set_status(StatusCode::InternalServerError);
-                                        }
-                                    }
-                                },
-                                Err(_) => {
-                                    response.set_status(StatusCode::BadRequest);
-                                }
-                            }
-                            response
-                        }).boxed()
-                    }
+                let web = webs.get_web(&web_name);
+                if web.is_none() {
+                    response.set_status(StatusCode::NotFound);
+                    return futures::future::ok(response).boxed();
                 }
+
+                let web = web.unwrap();
+                request.body().concat2().map(move |body| {
+                    let data = body.to_vec();
+                    let page_detail = PageDetail::parse(&data);
+                    if page_detail.is_err() {
+                        response.set_status(StatusCode::BadRequest);
+                        return response;
+                    }
+
+                    let page_detail = page_detail.unwrap();
+                    let page = web.new_page(page_detail);
+                    match page.create() {
+                        Ok(_) => (),
+                        Err(PageError::OverwriteError) => {
+                            response.set_status(StatusCode::BadRequest);
+                        },
+                        Err(_) => {
+                            response.set_status(StatusCode::InternalServerError);
+                        }
+                    }
+                    response
+                }).boxed()
             },
             Route::UpdatePage { web_name, page_name } => {
                 let webs = self.webs.lock().unwrap();
-                match webs.get_web(&web_name) {
-                    None => {
-                        response.set_status(StatusCode::NotFound);
-                        futures::future::ok(response).boxed()
-                    },
-                    Some(web) => {
-                        request.body().concat2().map(move |body| {
-                            let data = body.to_vec();
-                            match serde_json::from_slice::<Page>(&data) {
-                                Ok(page) => {
-                                    if &page_name != &page.name {
-                                        response.set_status(StatusCode::BadRequest);
-                                        return response;
-                                    }
-                                    match web.update_page(page) {
-                                        Ok(_) => (),
-                                        Err(PageError::NotFound) => {
-                                            response.set_status(StatusCode::NotFound);
-                                        },
-                                        Err(_) => {
-                                            response.set_status(StatusCode::InternalServerError);
-                                        }
-                                    }
-                                },
-                                Err(_) => {
-                                    response.set_status(StatusCode::BadRequest);
-                                }
-                            }
-                            response
-                        }).boxed()
-                    }
+                let web = webs.get_web(&web_name);
+                if web.is_none() {
+                    response.set_status(StatusCode::NotFound);
+                    return futures::future::ok(response).boxed();
                 }
+
+                let web = web.unwrap();
+                let page = web.get_page(&page_name);
+                if page.is_err() {
+                    response.set_status(StatusCode::InternalServerError);
+                    return futures::future::ok(response).boxed();
+                }
+
+                let mut page = page.unwrap();
+                request.body().concat2().map(move |body| {
+                    let data = body.to_vec();
+                    let detail = PageDetail::parse(&data);
+                    if detail.is_err() {
+                        response.set_status(StatusCode::BadRequest);
+                        return response;
+                    }
+
+                    let detail = detail.unwrap();
+                    if &page_name != &detail.name {
+                        response.set_status(StatusCode::BadRequest);
+                        return response;
+                    }
+                    page.detail = detail;
+
+                    match page.update() {
+                        Ok(_) => (),
+                        Err(PageError::NotFound) => {
+                            response.set_status(StatusCode::NotFound);
+                        },
+                        Err(_) => {
+                            response.set_status(StatusCode::InternalServerError);
+                        }
+                    };
+                    response
+                }).boxed()
             },
             Route::Invalid => {
                 response.set_status(StatusCode::NotFound);
