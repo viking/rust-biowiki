@@ -14,8 +14,8 @@ mod router;
 
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
-use hyper::StatusCode;
-use hyper::header::{AccessControlAllowOrigin, ContentType};
+use hyper::{Method, StatusCode};
+use hyper::header::{AccessControlAllowOrigin, AccessControlAllowMethods, ContentType};
 use hyper::server::{Http, Request, Response, Service};
 use futures::{Future, Stream, BoxFuture};
 use web::*;
@@ -35,6 +35,18 @@ impl Service for BioWiki {
     fn call(&self, request: Request) -> Self::Future {
         let mut response = Response::new().
             with_header(AccessControlAllowOrigin::Any);
+
+        if let &Method::Options = request.method() {
+            let allow_methods = vec!(
+                Method::Get,
+                Method::Post,
+                Method::Put,
+                Method::Delete
+            );
+            response = response.
+                with_header(AccessControlAllowMethods(allow_methods));
+            return futures::future::ok(response).boxed();
+        }
 
         let route = Route::from(&request);
         match route {
