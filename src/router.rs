@@ -63,6 +63,7 @@ pub enum Route {
     CreatePage { web_name: String },
     ShowPage   { web_name: String, page_name: String },
     UpdatePage { web_name: String, page_name: String },
+    ListAttachments  { web_name: String, page_name: String },
     CreateAttachment { web_name: String, page_name: String },
     ServeAttachment  { web_name: String, page_name: String, attachment_name: String },
     Invalid
@@ -88,6 +89,11 @@ impl<'a> From<&'a Request> for Route {
 
                 } else if let Some(mut params) = PAGE_PATH.test(&path) {
                     Route::ShowPage {
+                        web_name:  params.remove("web_name").unwrap(),
+                        page_name: params.remove("page_name").unwrap()
+                    }
+                } else if let Some(mut params) = ATTACHMENTS_PATH.test(&path) {
+                    Route::ListAttachments {
                         web_name:  params.remove("web_name").unwrap(),
                         page_name: params.remove("page_name").unwrap()
                     }

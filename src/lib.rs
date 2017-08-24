@@ -203,6 +203,35 @@ impl Service for BioWiki {
                     response
                 }).boxed()
             },
+            Route::ListAttachments { web_name, page_name } => {
+                let webs = self.webs.lock().unwrap();
+                let web = webs.get_web(&web_name);
+                if web.is_none() {
+                    response.set_status(StatusCode::NotFound);
+                    return futures::future::ok(response).boxed();
+                }
+
+                let web = web.unwrap();
+                let page = web.get_page(&page_name);
+                if let Err(PageError::NotFound) = page {
+                    response.set_status(StatusCode::NotFound);
+                    return futures::future::ok(response).boxed();
+                } else if let Err(_) = page {
+                    response.set_status(StatusCode::InternalServerError);
+                    return futures::future::ok(response).boxed();
+                }
+
+                let page = page.unwrap();
+                match page.list_attachments() {
+                    Ok(stubs) => {
+                        response.set_body(serde_json::to_string(&stubs).unwrap());
+                    },
+                    Err(_) => {
+                        response.set_status(StatusCode::InternalServerError);
+                    }
+                }
+                futures::future::ok(response).boxed()
+            },
             Route::CreateAttachment { web_name, page_name } => {
                 let webs = self.webs.lock().unwrap();
                 let web = webs.get_web(&web_name);

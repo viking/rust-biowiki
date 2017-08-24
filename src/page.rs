@@ -130,6 +130,11 @@ impl AttachmentData {
     }
 }
 
+#[derive(Serialize)]
+pub struct AttachmentStub {
+    file_name: String
+}
+
 #[derive(Debug)]
 pub enum PageError {
     NotFound,
@@ -262,6 +267,28 @@ impl Page {
         let detail_file = File::create(detail_path)?;
         serde_json::to_writer_pretty(detail_file, &self.detail)?;
         Ok(())
+    }
+
+    pub fn list_attachments(&self) -> Result<Vec<AttachmentStub>, AttachmentError> {
+        let mut path = self.path.clone();
+        path.push(ATTACHMENTS_DIRECTORY);
+        let stubs = fs::read_dir(&path)?.filter(|entry| {
+            match entry {
+                &Err(_) => false,
+                &Ok(ref entry) => {
+                    let path = entry.path();
+                    if !path.is_file() {
+                        return false;
+                    }
+                    let s = path.to_str();
+                    s.is_some()
+                }
+            }
+        }).map(|entry| {
+            let file_name = entry.unwrap().path().file_name().unwrap().to_str().unwrap().to_string();
+            AttachmentStub { file_name }
+        }).collect();
+        Ok(stubs)
     }
 
     pub fn get_attachment(&self, file_name: &str) -> Result<Attachment, AttachmentError> {
