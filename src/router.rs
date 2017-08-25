@@ -72,11 +72,12 @@ pub enum Route {
 impl<'a> From<&'a Request> for Route {
     fn from(request: &'a Request) -> Route {
         lazy_static! {
-            static ref WEBS_PATH: ParamPath = ParamPath::new("/webs");
-            static ref WEB_PATH:  ParamPath = ParamPath::new("/webs/:web_name");
-            static ref PAGE_PATH: ParamPath = ParamPath::new("/webs/:web_name/:page_name");
-            static ref ATTACHMENTS_PATH: ParamPath = ParamPath::new("/webs/:web_name/:page_name/attachments");
-            static ref ATTACHMENT_PATH:  ParamPath = ParamPath::new("/webs/:web_name/:page_name/attachments/:attachment_name");
+            static ref WEBS_PATH:  ParamPath = ParamPath::new("/webs");
+            static ref WEB_PATH:   ParamPath = ParamPath::new("/webs/:web_name");
+            static ref PAGES_PATH: ParamPath = ParamPath::new("/webs/:web_name/pages");
+            static ref PAGE_PATH:  ParamPath = ParamPath::new("/webs/:web_name/pages/:page_name");
+            static ref ATTACHMENTS_PATH: ParamPath = ParamPath::new("/webs/:web_name/pages/:page_name/attachments");
+            static ref ATTACHMENT_PATH:  ParamPath = ParamPath::new("/webs/:web_name/pages/:page_name/attachments/:attachment_name");
         }
         let path = request.path();
         match request.method() {
@@ -84,7 +85,7 @@ impl<'a> From<&'a Request> for Route {
                 if let Some(_) = WEBS_PATH.test(&path) {
                     Route::ListWebs
 
-                } else if let Some(mut params) = WEB_PATH.test(&path) {
+                } else if let Some(mut params) = PAGES_PATH.test(&path) {
                     Route::ListPages { web_name: params.remove("web_name").unwrap() }
 
                 } else if let Some(mut params) = PAGE_PATH.test(&path) {
@@ -111,7 +112,7 @@ impl<'a> From<&'a Request> for Route {
                 if let Some(_) = WEBS_PATH.test(&path) {
                     Route::CreateWeb
 
-                } else if let Some(mut params) = WEB_PATH.test(&path) {
+                } else if let Some(mut params) = PAGES_PATH.test(&path) {
                     Route::CreatePage { web_name: params.remove("web_name").unwrap() }
 
                 } else if let Some(mut params) = ATTACHMENTS_PATH.test(&path) {
