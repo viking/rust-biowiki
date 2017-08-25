@@ -84,6 +84,7 @@ impl Attachment {
     pub fn mime_type(&self) -> Mime {
         lazy_static! {
             static ref PNG_RE: Regex = Regex::new(r"^(?i)png$").unwrap();
+            static ref JPG_RE: Regex = Regex::new(r"^(?i)jpe?g$").unwrap();
         }
 
         let ext = self.path.extension();
@@ -99,6 +100,8 @@ impl Attachment {
         let ext = ext.unwrap();
         if PNG_RE.is_match(ext) {
             mime::IMAGE_PNG
+        } else if JPG_RE.is_match(ext) {
+            mime::IMAGE_JPEG
         } else {
             mime::APPLICATION_OCTET_STREAM
         }
@@ -272,6 +275,10 @@ impl Page {
     pub fn list_attachments(&self) -> Result<Vec<AttachmentStub>, AttachmentError> {
         let mut path = self.path.clone();
         path.push(ATTACHMENTS_DIRECTORY);
+        if !path.exists() {
+            return Ok(Vec::new());
+        }
+
         let stubs = fs::read_dir(&path)?.filter(|entry| {
             match entry {
                 &Err(_) => false,
