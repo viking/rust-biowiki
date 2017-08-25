@@ -21,7 +21,7 @@ impl ParamPath {
                         let name: String = chars.collect();
                         names.push(name.clone());
 
-                        let part = format!(r"(?P<{}>\w+(?:\.\w+)?)", name);
+                        let part = format!(r"(?P<{}>[^/]+)", name);
                         re.push_str(&part);
                     } else {
                         re.push_str(part);

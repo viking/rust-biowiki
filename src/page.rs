@@ -127,7 +127,7 @@ impl AttachmentData {
 
     pub fn is_file_name_valid(&self) -> bool {
         lazy_static! {
-            static ref FILE_NAME_RE: Regex = Regex::new(r"^\w+\.\w+$").unwrap();
+            static ref FILE_NAME_RE: Regex = Regex::new(r"^.+\.\w+$").unwrap();
         }
         FILE_NAME_RE.is_match(&self.file_name)
     }
