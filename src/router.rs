@@ -73,7 +73,7 @@ impl<'a> From<&'a Request> for Route {
     fn from(request: &'a Request) -> Route {
         lazy_static! {
             static ref WEBS_PATH:  ParamPath = ParamPath::new("/webs");
-            static ref WEB_PATH:   ParamPath = ParamPath::new("/webs/:web_name");
+            //static ref WEB_PATH:   ParamPath = ParamPath::new("/webs/:web_name");
             static ref PAGES_PATH: ParamPath = ParamPath::new("/webs/:web_name/pages");
             static ref PAGE_PATH:  ParamPath = ParamPath::new("/webs/:web_name/pages/:page_name");
             static ref ATTACHMENTS_PATH: ParamPath = ParamPath::new("/webs/:web_name/pages/:page_name/attachments");

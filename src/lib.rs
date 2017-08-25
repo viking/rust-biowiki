@@ -10,6 +10,7 @@ extern crate mime;
 
 mod web;
 mod page;
+mod attachment;
 mod router;
 
 use std::path::PathBuf;
@@ -20,6 +21,7 @@ use hyper::server::{Http, Request, Response, Service};
 use futures::{Future, Stream, BoxFuture};
 use web::*;
 use page::*;
+use attachment::*;
 use router::Route;
 
 struct BioWiki {
@@ -120,7 +122,7 @@ impl Service for BioWiki {
                     Err(PageError::NotFound) => {
                         response.set_status(StatusCode::NotFound);
                     },
-                    Err(err) => {
+                    Err(_) => {
                         response.set_status(StatusCode::InternalServerError);
                     }
                 }
@@ -269,7 +271,7 @@ impl Service for BioWiki {
                         Err(AttachmentError::Base64Error(_)) => {
                             response.set_status(StatusCode::BadRequest);
                         },
-                        Err(err) => {
+                        Err(_) => {
                             response.set_status(StatusCode::InternalServerError);
                         }
                     }
