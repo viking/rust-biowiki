@@ -1,14 +1,18 @@
-use std::{error, fmt};
-use std::io::{self, Write};
+use std::error;
+use std::fmt::{self, Write as FmtWrite};
+use std::io::{self, Write as IoWrite};
 use std::convert::From;
 use std::path::PathBuf;
 use std::fs::{self, File};
 use serde_json;
+use sha2::{Sha256};
+use digest::{Input, FixedOutput};
 
 use attachment::*;
 
 const PAGE_FILENAME: &'static str = "page.json";
 const ATTACHMENTS_DIRECTORY: &'static str = "attachments";
+const VERSIONS_DIRECTORY: &'static str = "versions";
 
 #[derive(Debug)]
 pub enum PageError {
@@ -71,7 +75,8 @@ impl From<serde_json::error::Error> for PageError {
 pub struct PageDetail {
     pub name: String,
     pub title: String,
-    content: String
+    content: String,
+    parent: String
 }
 
 impl PageDetail {
@@ -136,11 +141,52 @@ impl Page {
         self.write()
     }
 
+    fn page_path(&self) -> PathBuf {
+        let mut page_path = self.path.clone();
+        page_path.push(PAGE_FILENAME);
+        page_path
+    }
+
+    fn version_path(&self, hash: &str) -> PathBuf {
+        let mut version_path = self.path.clone();
+        version_path.push(VERSIONS_DIRECTORY);
+        let file_name = format!("{}.json", &hash);
+        version_path.push(&file_name);
+        version_path
+    }
+
     fn write(&self) -> Result<(), PageError> {
-        let mut detail_path = self.path.clone();
-        detail_path.push(PAGE_FILENAME);
-        let detail_file = File::create(detail_path)?;
-        serde_json::to_writer_pretty(detail_file, &self.detail)?;
+        let data = serde_json::to_string_pretty(&self.detail)?;
+        let data = data.as_ref();
+
+        // write main file
+        {
+            let page_path = self.page_path();
+            let mut page_file = File::create(page_path)?;
+            page_file.write_all(data)?;
+        }
+
+        // write version file
+        {
+            let mut hasher = Sha256::default();
+            hasher.process(data);
+            let result = hasher.fixed_result();
+            let mut hash = String::new();
+            for byte in result {
+                write!(&mut hash, "{:x}", byte).expect("Unable to write");
+            }
+            let version_path = self.version_path(&hash);
+            {
+                let versions_path = version_path.parent().unwrap();
+                if !versions_path.exists() {
+                    fs::create_dir(versions_path)?;
+                }
+            }
+            if !version_path.exists() {
+                let mut version_file = File::create(version_path)?;
+                version_file.write_all(data)?;
+            }
+        }
         Ok(())
     }
 
@@ -191,9 +237,47 @@ impl Page {
         att_file.write_all(&data)?;
         Ok(())
     }
+
+    pub fn list_versions(&self) -> Result<Vec<VersionStub>, PageError> {
+        let mut path = self.path.clone();
+        path.push(VERSIONS_DIRECTORY);
+        if !path.exists() {
+            return Ok(Vec::new());
+        }
+
+        let stubs = fs::read_dir(&path)?.filter(|entry| {
+            match entry {
+                &Err(_) => false,
+                &Ok(ref entry) => {
+                    let path = entry.path();
+                    if !path.is_file() {
+                        return false;
+                    }
+                    let s = path.to_str();
+                    s.is_some()
+                }
+            }
+        }).map(|entry| {
+            let hash = entry.unwrap().path().file_stem().unwrap().to_str().unwrap().to_string();
+            VersionStub { hash }
+        }).collect();
+        Ok(stubs)
+    }
+
+    pub fn get_version(&self, hash: &str) -> Result<PageDetail, PageError> {
+        let version_path = self.version_path(hash);
+        let version_file = File::open(&version_path)?;
+        let detail = serde_json::from_reader(version_file)?;
+        Ok(detail)
+    }
 }
 
 #[derive(Serialize)]
 pub struct PageStub {
     pub name: String
+}
+
+#[derive(Serialize)]
+pub struct VersionStub {
+    hash: String
 }

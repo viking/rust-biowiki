@@ -7,6 +7,8 @@ extern crate regex;
 #[macro_use] extern crate lazy_static;
 extern crate base64;
 extern crate mime;
+extern crate sha2;
+extern crate digest;
 
 mod web;
 mod page;
@@ -311,6 +313,67 @@ impl Service for BioWiki {
                 match att.data() {
                     Ok(data) => response.set_body(data),
                     Err(_) => response.set_status(StatusCode::InternalServerError)
+                }
+                futures::future::ok(response).boxed()
+            },
+            Route::ListPageVersions { web_name, page_name } => {
+                let webs = self.webs.lock().unwrap();
+                let web = webs.get_web(&web_name);
+                if web.is_none() {
+                    response.set_status(StatusCode::NotFound);
+                    return futures::future::ok(response).boxed();
+                }
+
+                let web = web.unwrap();
+                let page = web.get_page(&page_name);
+                if let Err(PageError::NotFound) = page {
+                    response.set_status(StatusCode::NotFound);
+                    return futures::future::ok(response).boxed();
+                } else if let Err(_) = page {
+                    response.set_status(StatusCode::InternalServerError);
+                    return futures::future::ok(response).boxed();
+                }
+
+                let page = page.unwrap();
+                match page.list_versions() {
+                    Ok(stubs) => {
+                        response.set_body(serde_json::to_string(&stubs).unwrap());
+                    },
+                    Err(_) => {
+                        response.set_status(StatusCode::InternalServerError);
+                    }
+                }
+                futures::future::ok(response).boxed()
+            },
+            Route::ShowPageVersion { web_name, page_name, version_hash } => {
+                let webs = self.webs.lock().unwrap();
+                let web = webs.get_web(&web_name);
+                if web.is_none() {
+                    response.set_status(StatusCode::NotFound);
+                    return futures::future::ok(response).boxed();
+                }
+
+                let web = web.unwrap();
+                let page = web.get_page(&page_name);
+                if let Err(PageError::NotFound) = page {
+                    response.set_status(StatusCode::NotFound);
+                    return futures::future::ok(response).boxed();
+                } else if let Err(_) = page {
+                    response.set_status(StatusCode::InternalServerError);
+                    return futures::future::ok(response).boxed();
+                }
+
+                let page = page.unwrap();
+                match page.get_version(&version_hash) {
+                    Ok(detail) => {
+                        response.set_body(serde_json::to_string(&detail).unwrap());
+                    },
+                    Err(PageError::NotFound) => {
+                        response.set_status(StatusCode::NotFound);
+                    },
+                    Err(_) => {
+                        response.set_status(StatusCode::InternalServerError);
+                    }
                 }
                 futures::future::ok(response).boxed()
             },
